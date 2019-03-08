@@ -170,7 +170,7 @@ public:
         bool prepare_change = false;
 
         std::vector<double> lane_speeds(NUM_LANES, SPEED_LIMIT);
-        std::vector<double> lane_speeds_behind(NUM_LANES, SPEED_LIMIT);
+        std::vector<double> lane_speeds_behind(NUM_LANES, 0);
 
         std::vector<int> closest_front_car(NUM_LANES, -1);
         std::vector<int> closest_behind_car(NUM_LANES, -1);
@@ -276,21 +276,25 @@ public:
             std::vector<double> costs;
             for (auto next_state: successor_states)
             {
+                double cost = 0;
                 switch (next_state)
                 {
                     case vehicle_state::ST_PREPARELANECHANGELEFT:
                     {
-                        costs.push_back(lane_transition_cost(SPEED_LIMIT, lane, lane - 1, lane_speeds));
+                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane - 1, lane_speeds);
+                        costs.push_back(cost);
                         break;
                     }
                     case vehicle_state::ST_PREPARELANECHANGERIGHT:
                     {
-                        costs.push_back(lane_transition_cost(SPEED_LIMIT, lane, lane + 1, lane_speeds));
+                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane + 1, lane_speeds);
+                        costs.push_back(cost);
                         break;
                     }
                     case vehicle_state::ST_LANEKEEP:
                     {
-                        costs.push_back(lane_transition_cost(SPEED_LIMIT, lane, lane, lane_speeds));
+                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane, lane_speeds);
+                        costs.push_back(cost);
                         break;
                     }
                     default:
@@ -299,6 +303,7 @@ public:
                         break;
                     }
                 }
+                std::cout << get_state_name(next_state) << " = " << cost << std::endl;
             }
 
             auto best_cost = std::min_element(begin(costs), end(costs));
@@ -307,7 +312,7 @@ public:
         }
         else if (state == ST_PREPARELANECHANGELEFT)
         {
-            if (ref_vel - lane_speeds_behind[lane - 1] > 10)
+            if (ref_vel - lane_speeds_behind[lane - 1] > 15)
             {
                 prepare_change = true;
             }
@@ -321,7 +326,7 @@ public:
         }
         else if (state == ST_PREPARELANECHANGERIGHT)
         {
-            if (ref_vel - lane_speeds_behind[lane + 1] > 10)
+            if (ref_vel - lane_speeds_behind[lane + 1] > 15)
             {
                 prepare_change = true;
             }
