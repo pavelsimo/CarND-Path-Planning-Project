@@ -125,7 +125,7 @@ and make safety and jerk control adjustments for transition.
 
 Here's a [video of the project](https://youtu.be/4NxuV8vxSoc)
 
-![Path Planning Project](./CarND-Path-Planning-Project.png =480x320)
+![Path Planning Project](./CarND-Path-Planning-Project.png)
 
 
 
