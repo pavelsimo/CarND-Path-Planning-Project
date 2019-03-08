@@ -17,7 +17,10 @@ using std::vector;
 
 constexpr static double LANE_SIZE = 4.0;
 constexpr static double HALF_LANE_SIZE = LANE_SIZE / 2.0;
-constexpr static double SPEED_LIMIT = 45; // mph
+constexpr static double SPEED_LIMIT = 50; // mph
+constexpr static double TARGET_SPEED = SPEED_LIMIT - 0.5; // mph
+constexpr static double CHANGE_LANE_REF_SPEED = TARGET_SPEED / 2.0f; // mph
+constexpr static double BUFFER_V = 15; // mph
 constexpr static double SPEED_INCREMENT = .224; // m/s^2
 constexpr static double FRONT_MARGIN = 20; // meters
 constexpr static double BACK_MARGIN = 20; // meters
@@ -82,24 +85,24 @@ public:
         return -1;
     }
 
-    inline double lane_leftmost_d()
+    inline double get_lane_leftmost_d()
     {
         return LANE_SIZE * lane;
     }
 
-    inline double lane_rightmost_d()
+    inline double get_lane_rightmost_d()
     {
         return LANE_SIZE * lane + LANE_SIZE;
     }
 
-    inline double lane_center_d()
+    inline double get_lane_center_d()
     {
         return LANE_SIZE * lane + HALF_LANE_SIZE;
     }
 
     inline bool is_on_vehicle_lane(double car_d)
     {
-        return car_d < lane_rightmost_d() and car_d > lane_leftmost_d();
+        return car_d < get_lane_rightmost_d() and car_d > get_lane_leftmost_d();
     }
 
     inline bool is_on_vehicle_left_lane(double car_d)
@@ -169,7 +172,7 @@ public:
         bool safe_change_right = true;
         bool prepare_lane_change = false;
 
-        std::vector<double> lane_speeds(NUM_LANES, SPEED_LIMIT);
+        std::vector<double> lane_speeds(NUM_LANES, TARGET_SPEED);
         std::vector<double> lane_speeds_behind(NUM_LANES, 0);
 
         std::vector<int> closest_front_car(NUM_LANES, -1);
@@ -245,17 +248,18 @@ public:
                 double car_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
                 double car_s = sensor_fusion[best_idx][5];
 
-                if (car_s - s < 30)
+                if (car_s - s < FRONT_MARGIN + 10)
                 {
                     lane_speeds[i] = car_speed;
                 }
                 else
                 {
-                    lane_speeds[i] = SPEED_LIMIT;
+                    /// if there is a big enough gap, the lane speed becomes our target speed
+                    lane_speeds[i] = TARGET_SPEED;
                 }
             }
 
-            /// lane speeds behind front
+            /// lane speeds behind
             if (closest_behind_car[i] != -1)
             {
                 int best_idx = closest_behind_car[i];
@@ -265,12 +269,13 @@ public:
                 lane_speeds_behind[i] = car_speed;
                 double car_s = sensor_fusion[best_idx][5];
 
-                if (s - car_s < 30)
+                if (s - car_s < BACK_MARGIN + 10)
                 {
                     lane_speeds_behind[i] = car_speed;
                 }
                 else
                 {
+                    /// if there is a big enough gap, the lane speed of the car behind on that lane becomes 0, thus neglectable
                     lane_speeds_behind[i] = 0;
                 }
             }
@@ -278,15 +283,19 @@ public:
 
         if (state == ST_LANEKEEP)
         {
-            /// calculate costs
+            /// calculating costs
             std::vector<vehicle_state> successor_states;
+
+            /// order here is important, if costs are equal, prefer to keep the current lane
             successor_states.push_back(vehicle_state::ST_LANEKEEP);
 
+            /// can change to left lane, only if is safe and the left lane is not the leftmost lane
             if (safe_change_left and lane - 1 >= LEFTMOST_LANE)
             {
                 successor_states.push_back(vehicle_state::ST_PREPARELANECHANGELEFT);
             }
 
+            /// can change to right lane, only if is safe and the right lane is not the rightmost lane
             if (safe_change_right and lane + 1 <= RIGHTMOST_LANE)
             {
                 successor_states.push_back(vehicle_state::ST_PREPARELANECHANGERIGHT);
@@ -300,19 +309,19 @@ public:
                 {
                     case vehicle_state::ST_LANEKEEP:
                     {
-                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane, lane_speeds);
+                        cost = lane_transition_cost(TARGET_SPEED, lane, lane, lane_speeds);
                         costs.push_back(cost);
                         break;
                     }
                     case vehicle_state::ST_PREPARELANECHANGELEFT:
                     {
-                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane - 1, lane_speeds);
+                        cost = lane_transition_cost(TARGET_SPEED, lane, lane - 1, lane_speeds);
                         costs.push_back(cost);
                         break;
                     }
                     case vehicle_state::ST_PREPARELANECHANGERIGHT:
                     {
-                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane + 1, lane_speeds);
+                        cost = lane_transition_cost(TARGET_SPEED, lane, lane + 1, lane_speeds);
                         costs.push_back(cost);
                         break;
                     }
@@ -322,7 +331,7 @@ public:
                         break;
                     }
                 }
-                std::cout << get_state_name(next_state) << " = " << cost << std::endl;
+                //std::cout << get_state_name(next_state) << " = " << cost << std::endl;
             }
 
             auto best_cost = std::min_element(begin(costs), end(costs));
@@ -331,9 +340,9 @@ public:
         }
         else if (state == ST_PREPARELANECHANGELEFT)
         {
-            if (ref_vel - lane_speeds_behind[lane - 1] > 15)
+            if (ref_vel - lane_speeds_behind[lane - 1] > BUFFER_V)
             {
-                if (safe_change_left and ref_vel < 30)
+                if (safe_change_left and ref_vel < CHANGE_LANE_REF_SPEED)
                 {
                     state = ST_LANECHANGELEFT;
                 }
@@ -345,9 +354,9 @@ public:
         }
         else if (state == ST_PREPARELANECHANGERIGHT)
         {
-            if (ref_vel - lane_speeds_behind[lane + 1] > 15)
+            if (ref_vel - lane_speeds_behind[lane + 1] > BUFFER_V)
             {
-                if (safe_change_right and ref_vel < 30)
+                if (safe_change_right and ref_vel < CHANGE_LANE_REF_SPEED)
                 {
                     state = ST_LANECHANGERIGHT;
                 }
@@ -373,11 +382,12 @@ public:
                   << " lane_speeds_behind = " << lane_speeds_behind[0] << " " << lane_speeds_behind[1] << " " << lane_speeds_behind[2] << " "
                   << ", safe_change_left = " << safe_change_left << ", safe_change_right = " << safe_change_right << "\n";
 
+        ///
         if (too_close or prepare_lane_change)
         {
             ref_vel -= SPEED_INCREMENT;
         }
-        else if (ref_vel < SPEED_LIMIT)
+        else if (ref_vel < TARGET_SPEED)
         {
             ref_vel += SPEED_INCREMENT;
         }
@@ -526,8 +536,6 @@ int main() {
             ptsy.push_back(ref_y_prev);
             ptsy.push_back(ref_y);
           }
-
-
 
           for (auto dist: {30, 60, 90})
           {
