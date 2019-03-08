@@ -167,7 +167,7 @@ public:
         bool too_close = false;
         bool safe_change_left = true;
         bool safe_change_right = true;
-        bool prepare_change = false;
+        bool prepare_lane_change = false;
 
         std::vector<double> lane_speeds(NUM_LANES, SPEED_LIMIT);
         std::vector<double> lane_speeds_behind(NUM_LANES, 0);
@@ -243,7 +243,16 @@ public:
                 double car_vx = sensor_fusion[best_idx][3];
                 double car_vy = sensor_fusion[best_idx][4];
                 double car_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
-                lane_speeds[i] = car_speed;
+                double car_s = sensor_fusion[best_idx][5];
+
+                if (car_s - s < 30)
+                {
+                    lane_speeds[i] = car_speed;
+                }
+                else
+                {
+                    lane_speeds[i] = SPEED_LIMIT;
+                }
             }
 
             /// lane speeds behind front
@@ -254,6 +263,16 @@ public:
                 double car_vy = sensor_fusion[best_idx][4];
                 double car_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
                 lane_speeds_behind[i] = car_speed;
+                double car_s = sensor_fusion[best_idx][5];
+
+                if (s - car_s < 30)
+                {
+                    lane_speeds_behind[i] = car_speed;
+                }
+                else
+                {
+                    lane_speeds_behind[i] = 0;
+                }
             }
         }
 
@@ -268,7 +287,7 @@ public:
                 successor_states.push_back(vehicle_state::ST_PREPARELANECHANGELEFT);
             }
 
-            if (safe_change_right and lane + 1 < RIGHTMOST_LANE)
+            if (safe_change_right and lane + 1 <= RIGHTMOST_LANE)
             {
                 successor_states.push_back(vehicle_state::ST_PREPARELANECHANGERIGHT);
             }
@@ -279,6 +298,12 @@ public:
                 double cost = 0;
                 switch (next_state)
                 {
+                    case vehicle_state::ST_LANEKEEP:
+                    {
+                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane, lane_speeds);
+                        costs.push_back(cost);
+                        break;
+                    }
                     case vehicle_state::ST_PREPARELANECHANGELEFT:
                     {
                         cost = lane_transition_cost(SPEED_LIMIT, lane, lane - 1, lane_speeds);
@@ -288,12 +313,6 @@ public:
                     case vehicle_state::ST_PREPARELANECHANGERIGHT:
                     {
                         cost = lane_transition_cost(SPEED_LIMIT, lane, lane + 1, lane_speeds);
-                        costs.push_back(cost);
-                        break;
-                    }
-                    case vehicle_state::ST_LANEKEEP:
-                    {
-                        cost = lane_transition_cost(SPEED_LIMIT, lane, lane, lane_speeds);
                         costs.push_back(cost);
                         break;
                     }
@@ -314,13 +333,13 @@ public:
         {
             if (ref_vel - lane_speeds_behind[lane - 1] > 15)
             {
-                prepare_change = true;
-            }
-            else
-            {
-                if (safe_change_left)
+                if (safe_change_left and ref_vel < 30)
                 {
                     state = ST_LANECHANGELEFT;
+                }
+                else
+                {
+                    prepare_lane_change = true;
                 }
             }
         }
@@ -328,13 +347,13 @@ public:
         {
             if (ref_vel - lane_speeds_behind[lane + 1] > 15)
             {
-                prepare_change = true;
-            }
-            else
-            {
-                if (safe_change_right)
+                if (safe_change_right and ref_vel < 30)
                 {
                     state = ST_LANECHANGERIGHT;
+                }
+                else
+                {
+                    prepare_lane_change = true;
                 }
             }
 
@@ -350,10 +369,11 @@ public:
             state = ST_LANEKEEP;
         }
 
-        std::cout << get_state_name(state) << " lane_speeds = " << lane_speeds[0] << " " << lane_speeds[1] << " " << lane_speeds[2] << " "
+        std::cout << "ref_vel=" << ref_vel << " " << get_state_name(state) << " lane_speeds = " << lane_speeds[0] << " " << lane_speeds[1] << " " << lane_speeds[2] << " "
+                  << " lane_speeds_behind = " << lane_speeds_behind[0] << " " << lane_speeds_behind[1] << " " << lane_speeds_behind[2] << " "
                   << ", safe_change_left = " << safe_change_left << ", safe_change_right = " << safe_change_right << "\n";
 
-        if (too_close or prepare_change)
+        if (too_close or prepare_lane_change)
         {
             ref_vel -= SPEED_INCREMENT;
         }
